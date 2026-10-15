@@ -1,8 +1,10 @@
 # yap-video — a Claude Code skill for editing talking-head videos
 
 Turns raw talking-head / "yap" footage into a tight short-form edit (Reels, TikTok, Shorts, or 16:9):
-transcript-driven jump cuts, filler and stutter removal, face-aware punch-in zooms, word-by-word animated
-captions, restrained sound design, loudness mastering, self-QA, and publish copy. Everything runs locally
+transcript-driven jump cuts with L-cuts, filler and stutter removal, punch-in zooms, creator-style animated
+captions (words appear as spoken, keyword and script accents, big-beat slams), sticker cutouts and moving props,
+restrained synthesized sound design, D-Log M grading with a clarity pass, loudness mastering, 4K export, self-QA,
+and publish copy. Everything runs locally
 with ffmpeg + local Whisper; no API key required.
 
 It was synthesized from a read-only, security-reviewed pass over a dozen open-source video-editing agent
@@ -33,3 +35,4 @@ In Claude Code, point it at a folder of footage: "edit this yap", "cut the dead 
 
 - `skills/yap-video/SKILL.md`: the pipeline, hard rules, vibes/presets, and known gaps
 - `skills/yap-video/references/params.md`: the ffmpeg recipes and numbers (cuts, zoom, captions, audio, grade, export)
+- `skills/yap-video/references/pipeline.md`: the implementation pattern from real edits: sound-based cut edges, frame-exact pieces, L-cuts, a Pillow type overlay (creator captions, slams, stickers, moving props), synthesized SFX, and 4K HEVC + 1080 masters

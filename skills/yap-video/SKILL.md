@@ -9,13 +9,13 @@ Turn raw talking-head footage into a tight, designed short. Everything runs loca
 
 Synthesized from a security-reviewed read of: browser-use/video-use, adukhan98/video-edit, chrislema/videoeditor, zyziyun/video-studio, eyadhussain00-hub/Videoediting (ideas only), AgriciDaniel/claude-shorts, Barty-Bart/motion-graphics, ZiadAbdelkarim/beat-synced-edit, 6missedcalls/video-editing-skill, haidrrrry/claude-remotion-skill, digitalsamba/claude-code-video-toolkit, blixvip/easyedit (ideas only).
 
-Exact numbers live in `references/params.md`. Read it before building filtergraphs.
+Exact numbers live in `references/params.md`. Read it before building filtergraphs. `references/pipeline.md` is the battle-tested implementation pattern from real edits (cut planner, L-cut renderer, Pillow type overlay, stickers/props, 4K master): follow it instead of reinventing.
 
 ## Hard rules
 
 1. **Plan first, then wait.** After transcribing, show a plain-English plan (hook, what gets cut, zoom/caption/SFX approach, length, format) and get a yes before rendering. Taste calls (hook line, which sentences go, caption style) are offered as a short menu with a recommendation, never chosen silently.
 2. **Never overwrite the source.** Write to `<folder>/edit/`. Keep intermediates until the user approves, then offer to clean up (list files + sizes first; never auto-delete).
-3. **Never cut inside a word.** Pad cut edges (50 ms before first kept word, 80 ms after last), snap to the quietest 10 ms within +/-0.25 s, 30 ms audio fade at every join.
+3. **Never cut inside a word.** Find edges from the audio envelope, not Whisper's word times (Whisper marks starts late and ends early, which clips the first/last syllable): walk back from the word start up to 0.25 s and forward from the word end up to 0.20 s while speech energy stays above floor + 8 dB, then pad 30 ms. 15-30 ms audio fade at every join.
 4. **Re-encode cuts, never `-c copy`** for anything frame-accurate (copy lands on keyframes and glitches).
 5. **Captions go last**, after zooms and overlays, so zooms never crop them.
 6. **Prove it.** Render, then inspect: frames at every cut +/-1.5 s, contact sheet, `ebur128` loudness readout. Max 3 fix passes, then report what is left. Report numbers; you cannot hear the audio.
@@ -53,6 +53,10 @@ Tightness profiles (pause squeeze; pauses are shortened, not deleted):
 - Low-confidence or ambiguous cuts (retakes, merged fillers, ASR noise) are confirmed with the user, not auto-applied.
 - **Verify every join**: re-transcribe a window across each join; it must read as the intended words. Expect 2-3 rounds. After the full cut, diff the content words against the plan; fail if any are lost.
 - Visual check: avoid cut edges where the speaker glances down at notes or mid-blink/head-move; end tight (<=30 ms) on head-move edges.
+- **Frame-exact pieces:** quantize every piece to whole frames (`n = round(dur*fps)`) and plan the output timeline from those, or captions drift (~1 s over 40 cuts).
+- **L-cuts:** render picture and sound separately. At each new line (not inner pause squeezes) the picture cut lands 2 frames after the audio cut; inner squeezes stay hard cuts. Smooths jump cuts without visible lip-sync error.
+- **Looking down / at notes:** in stretches where the speaker glances down between phrases, squeeze harder (pauses over 0.10 s, keep 0.03 s each side). Down-glances during speech can't be cut; hide them with a punch-in or a sticker/b-roll.
+- **Keep the human moments** the user asks for (a laugh, a reaction) as protected ranges with raw edges; trim them by exact seconds when asked ("cut 0:09-0:11").
 - Pacing: a new visual event (zoom, caption emphasis, graphic, b-roll) at least every 1.5-4 s; no static frame over ~8 s. Optional speed-up 1.1-1.25x on body (never above ~1.3x, it sounds fake; hook up to 1.5x is the ceiling).
 
 ### 4. Zoom (face-aware)
@@ -76,7 +80,23 @@ Tightness profiles (pause squeeze; pauses are shortened, not deleted):
   - **Hormozi-lite** (fallback): white with black outline, centered.
 - Emphasis: ~1 keyword in 4 words gets color/scale 112%; numbers/money auto-colored (e.g. `#3CE07A`); one keyword per caption group gets 2-4x size treatment in "designed" vibe. Pop on spoken word: scale 108-112% eased back in ~110 ms.
 - Placement: respect platform safe zones (universal 9:16 safe area x60-940, y285-1480). Reels caption y~1360, TikTok ~1400, Shorts ~1440. Never over the mouth/chin. Lines never exceed 4 words, balanced stacking.
-- No condensed display faces as the default (reads cramped).
+- No condensed display faces as the default for body captions (reads cramped).
+
+**Creator type system (proven on real edits; user said "real content creator shit but clean"):**
+- Body: Gotham Narrow Black (or Montserrat 800), UPPERCASE, white, ~70 px at 1080 w, dark stroke + soft blurred drop shadow. Words appear as they are spoken; only the newest word is active (yellow + 112% pop easing back over 3 frames). Never two highlighted words at once.
+- **No punctuation** in captions (keep apostrophes and masked swears like `sh*t`, `f***ing`).
+- Keywords (product, names, numbers, the topic): condensed Ultra (Gotham XNarrow Ultra), 1.5x, yellow, inline on the baseline.
+- Script accent (SignPainter / a brush script), cream, tilted ~6 deg, for 4-6 emotional words per video max.
+- Big beats (punchline, thesis line, product reveal): condensed Ultra slam 1.28 -> 1.0 over 4 frames, word by word, 200-250 px, below the mouth (check the punch-in zoom moves the face down).
+- Moment cards: text the speaker didn't say but the moment earns (e.g. "*laughs in rich*" in script over a laugh).
+- Series/title build: each title line appears with its spoken word (condensed display line / script line / brand-color line / tracked small caps), placed below the chin, never over the mouth.
+- Mask swears in captions only when asked; audio stays as recorded.
+- Ask before adding persistent labels (day counters, series tags); creators often prefer them off.
+
+### 5b. Props, stickers and cutouts (optional, high impact)
+- Real-person/brand references (e.g. "Bruce Wayne", "Alfred", a car): show ONCE on first mention as a white-outlined sticker cutout (alpha MaxFilter ~19 px under the cutout), pop in with overshoot (0 -> 1.12 -> 1.0 in 0.22 s), gentle wobble (+/-2.5 deg), ~1.9 s, pop out; place top-left/top-right beside the head, never over the face. Pair with one SFX (whoosh, or a themed one: service-bell ding for a butler).
+- Objects can move: e.g. a car cutout drives across the bottom on its spoken word (smoothstep across ~2 s, small bounce, 2 speed-ghost copies at 18%/32% alpha), with an engine pass-by SFX.
+- Sourcing: user assets first; for real people use openly licensed photos (Wikimedia Commons CC BY / CC BY-SA / PD) and tell the user the credit line; remove backgrounds with an available tool (e.g. a background-removal API or rembg) after asking. Personal/social use only unless the user clears rights.
 
 ### 6. Sound design
 Order of work: music (if any) first, picture next, SFX last.
@@ -90,12 +110,13 @@ Order of work: music (if any) first, picture next, SFX last.
 - Light grade only: warm punch preset or auto-grade bounded to +/-8%. Do not blur static talking heads (looks fake). Optional grain 3-6% and subtle vignette for the "designed" vibe.
 - **Log footage (DJI Osmo Pocket 3 D-Log M, 10-bit HEVC; camera tags it bt709 even though it is log):** convert first with the DJI D-Log M -> Rec.709 LUT, then grade on top. Work in 16-bit: `format=rgb48le,lut3d=file='<lut>.cube':interp=tetrahedral`. The LUT darkens mids; for low-key indoor shots of darker skin, lift mids rather than crushing. Tested starting point (look: rich blacks, slightly cool room, natural skin): `curves=master='0/0 0.04/0.025 0.25/0.31 0.6/0.70 0.9/0.92 1/0.98',colorbalance=rs=-0.025:bs=0.04:rm=0.03:bm=-0.015,eq=saturation=1.06,unsharp=5:5:0.3`. Always render raw | LUT | grade side by side on 2 frames and look before batch rendering. Grade shots individually when lighting changes; keep the source frame rate (24000/1001).
 - Pocket 3 vertical clips are 1728x3072 (or 2160x3840): enough headroom for 1.15-1.3x punch-ins at 1080x1920 output.
+- **Clarity ("make it look like an FX6"):** inspect a 4x face crop first. Small-sensor cameras in dim rooms smear fine detail with in-camera NR; post cannot restore it. Do NOT add denoise (looks plastic). Do: crop -> lanczos to 2160x3840 -> LUT/grade in rgb48 -> `cas=0.45` -> `format=yuv420p10le,noise=c0s=5:c0f=t+u` (fine temporal grain reads as texture). Then tell the user the real fix is light: soft key at 45 deg, ISO 100-400, expose D-Log M a bit hot, background practical, 1/50 shutter, clean lens.
 
 ### Rendering captions without libass
 If `ffmpeg -filters` lacks `subtitles`/`ass` (common Homebrew builds), draw caption frames with Pillow (RGBA) and pipe raw frames to ffmpeg as an alpha overlay: `-f rawvideo -pixel_format rgba -video_size WxH -framerate 24000/1001 -i pipe:0 -c:v qtrle -pix_fmt argb captions.mov`, then `overlay` it last. Cache identical frames. Full control (word pop, active-word color, stroke, shadow) without libass.
 
 ### 8. Render and QA
-- Master: H.264 High, bt709, `yuv420p`, AAC 48 kHz 192-320k, `+faststart`. Re-render per platform via preset (YouTube 12M, TikTok crf 18 maxrate 10M, Reels 4.5M).
+- Master: mix and loudnorm the audio ONCE to a 24-bit wav, then mux it into every export. Upload master: 2160x3840 HEVC 10-bit (`libx265 -crf 16 -pix_fmt yuv420p10le -tag:v hvc1`), because platforms re-compress and keep more from a sharper upload. Backup: 1080x1920 H.264 High crf 16 `yuv420p`. Plus a caption-free 1080 master and the `.srt`. bt709 tags, AAC 48 kHz 256k, `+faststart`.
 - Self-check loop (max 3 passes): contact-sheet frames at every cut +/-1.5 s plus first/last 2 s and midpoints (faces cut off, bad crops, caption collisions, text over mouth); `verify_cuts` on joins; `ffprobe` duration; `ffmpeg -i out.mp4 -af ebur128=peak=true -f null -` and report LUFS + true peak; no pause >=0.2 s left inside a line; ending must not be the speaker reaching for the phone.
 - For anything publishable, brief a separate critic agent to roast the edit: ranked problems, timecodes, evidence, top 5 fixes. Apply, re-check, deliver.
 
@@ -118,6 +139,9 @@ If `ffmpeg -filters` lacks `subtitles`/`ass` (common Homebrew builds), draw capt
 
 ## Tools used
 ffmpeg/ffprobe (with libass), local Whisper (mlx-whisper / faster-whisper / whisper.cpp), OpenCV or MediaPipe (face), numpy/librosa (envelope, beats). Optional: Remotion or HyperFrames (graphics), ElevenLabs (Scribe, SFX), yt-dlp (only for user-supplied or licensed sources).
+
+## Iteration loop (what a real session looks like)
+Expect 3-4 feedback rounds. Typical notes and the fix: "tighter / less gaps" -> lower squeeze threshold + envelope edges + L-cuts; "you cut that word off" -> envelope edges; "that take isn't clean" -> swap to another take of the same line (keep a take map); "more creative captions" -> the creator type system + moment cards + props; "4K / clearer" -> clarity chain + 4K HEVC master. Re-plan -> re-render pieces -> re-render overlay -> master; keep each step a separate script so a note only re-runs what it touches.
 
 ## Known gaps (be honest with the user)
 - No ear: loudness is measured, timing/feel of comedic pauses is a judgment call; offer a with/without-music A/B and expect one feedback round.
